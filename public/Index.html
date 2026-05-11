@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Milton Chat</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, sans-serif; }
+        body { background: #e5ddd5; height: 100vh; display: flex; flex-direction: column; }
+      .header { background: #075e54; color: white; padding: 15px; display: flex; justify-content: space-between; align-items: center; }
+      .chat { flex: 1; padding: 10px; overflow-y: auto; background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png'); }
+      .msg { max-width: 70%; margin: 5px 0; padding: 8px 12px; border-radius: 8px; word-wrap: break-word; }
+      .msg-eu { background: #dcf8c6; margin-left: auto; }
+      .msg-outro { background: white; }
+      .msg-sistema { background: #ffe6cc; text-align: center; font-size: 12px; margin: 5px auto; }
+      .nome { font-weight: 700; color: #075e54; font-size: 13px; }
+      .hora { font-size: 11px; color: #667781; float: right; margin-left: 10px; margin-top: 2px; }
+      .footer { display: flex; padding: 10px; background: #f0f0f0; }
+      .footer input { flex: 1; padding: 12px; border: none; border-radius: 20px; font-size: 16px; }
+      .footer button { background: #075e54; color: white; border: none; width: 45px; height: 45px; border-radius: 50%; margin-left: 8px; font-size: 18px; }
+      .login { position: fixed; inset: 0; background: #075e54; display: flex; justify-content: center; align-items: center; z-index: 100; }
+      .login-box { background: white; padding: 30px; border-radius: 12px; text-align: center; }
+      .online { font-size: 13px; }
+      .digitando { height: 20px; font-size: 13px; color: #667781; font-style: italic; padding-left: 15px; }
+    </style>
+</head>
+<body>
+    <div id="telaLogin" class="login">
+        <div class="login-box">
+            <h2>Milton Chat</h2>
+            <p style="margin: 15px 0">Teu WhatsApp Privado</p>
+            <input type="text" id="inputNome" placeholder="Teu nome" style="padding:12px;width:100%;margin:10px 0;border:1px solid #ddd;border-radius:6px">
+            <button onclick="entrar()" style="padding:12px 30px;background:#075e54;color:white;border:none;border-radius:6px;font-weight:700">Entrar</button>
+        </div>
+    </div>
+
+    <div class="header">
+        <div>
+            <strong>Milton Chat</strong>
+            <div class="online" id="contadorOnline">0 online</div>
+        </div>
+    </div>
+
+    <div class="chat" id="chat"></div>
+    <div class="digitando" id="digitando"></div>
+
+    <div class="footer">
+        <input type="text" id="inputMsg" placeholder="Mensagem" oninput="estouDigitando()">
+        <button onclick="enviar()">➤</button>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let meuNome = '';
+
+        function entrar() {
+            meuNome = document.getElementById('inputNome').value.trim();
+            if (meuNome.length < 2) return alert('Mete um nome válido');
+            socket.emit('entrar', meuNome);
+            document.getElementById('telaLogin').style.display = 'none';
+        }
+
+        function enviar() {
+            const input = document.getElementById('inputMsg');
+            const texto = input.value.trim();
+            if (!texto) return;
+            addMsg({ nome: meuNome, texto, hora: horaAgora(), meu: true });
+            socket.emit('mensagem', { nome: meuNome, texto });
+            input.value = '';
+        }
+
+        function addMsg(dado) {
+            const div = document.createElement('div');
+            if (dado.nome === 'Sistema') {
+                div.className = 'msg msg-sistema';
+                div.innerHTML = dado.texto;
+            } else if (dado.meu) {
+                div.className = 'msg msg-eu';
+                div.innerHTML = `${dado.texto}<span class="hora">${dado.hora}</span>`;
+            } else {
+                div.className = 'msg msg-outro';
+                div.innerHTML = `<div class="nome">${dado.nome}</div>${dado.texto}<span class="hora">${dado.hora}</span>`;
+            }
+            document.getElementById('chat').appendChild(div);
+            document.getElementById('chat').scrollTop = 999999;
+        }
+
+        let timeoutDigitando;
+        function estouDigitando() {
+            socket.emit('digitando', meuNome);
+            clearTimeout(timeoutDigitando);
+            timeoutDigitando = setTimeout(() => socket.emit('digitando', ''), 1000);
+        }
+
+        socket.on('mensagem', (dado) => {
+            if (dado.nome!== meuNome) addMsg(dado);
+        });
+
+        socket.on('listaOnline', (lista) => {
+            document.getElementById('contadorOnline').innerText = lista.length + ' online';
+        });
+
+        socket.on('digitando', (nome) => {
+            document.getElementById('digitando').innerText = nome ? `${nome} está digitando...` : '';
+        });
+
+        function horaAgora() {
+            return new Date().toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        document.getElementById('inputMsg').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') enviar();
+        });
+    </script>
+</body>
+  </html>
