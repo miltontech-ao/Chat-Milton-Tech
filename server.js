@@ -1,97 +1,70 @@
-const express = require('express');
-const app = express();
-const http = require('http').createServer(app);
-const io = require('socket.io')(http);
-const path = require('path');
+// Menu do restaurante - dono edita aqui
+const MENU = {
+  1: { nome: 'Frango Grelhado', preco: 2500 },
+  2: { nome: 'Pizza Família', preco: 3000 },
+  3: { nome: 'Hamburger Completo', preco: 2000 },
+  4: { nome: 'Coca 1L', preco: 800 }
+};
 
-const PORT = process.env.PORT || 3000;
-const SENHA_DO_CHAT = "milton2026"; // TROCA AQUI TUA SENHA
+let pedidosPendentes = {}; // Guarda pedido antes do endereço
 
-// Tela de senha antes de entrar no chat
-app.use((req, res, next) => {
-  const senha = req.query.senha;
-  
-  // Se já tá no chat ou é arquivo do socket, deixa passar
-  if (req.path.includes('socket.io') || senha === SENHA_DO_CHAT) {
-    return next();
-  }
-  
-  // Senão mostra tela de login
-  return res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Milton Chat Privado</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <style>
-        body { 
-          font-family: Arial; 
-          background: #e5ddd5; 
-          display: flex; 
-          justify-content: center; 
-          align-items: center; 
-          height: 100vh; 
-          margin: 0;
+socket.on('chat message', ({sala, nome, msg, numero}) => {
+    const cmd = msg.toLowerCase();
+
+    // 1. MOSTRA MENU
+    if (cmd === '/menu') {
+      let textoMenu = '🍽️ *MENU MILTON GRILL* 🍽️\n\n';
+      for (let id in MENU) {
+        textoMenu += `*${id}* - ${MENU[id].nome} - ${MENU[id].preco} Kz\n`;
+      }
+      textoMenu += '\nPra pedir: /pedir 1 2 4';
+      io.to(sala).emit('bot message', { msg: textoMenu });
+      return;
+    }
+
+    // 2. FAZ PEDIDO
+    if (cmd.startsWith('/pedir')) {
+      const itens = cmd.split(' ').slice(1);
+      let total = 0;
+      let resumo = '';
+
+      itens.forEach(id => {
+        if(MENU[id]) {
+          total += MENU[id].preco;
+          resumo += `• ${MENU[id].nome}\n`;
         }
-        .login { 
-          background: white; 
-          padding: 30px; 
-          border-radius: 8px; 
-          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-          text-align: center;
-        }
-        input { 
-          padding: 12px; 
-          width: 200px; 
-          border: 1px solid #ddd; 
-          border-radius: 20px;
-          margin: 10px 0;
-        }
-        button { 
-          padding: 12px 24px; 
-          background: #25D366; 
-          color: white; 
-          border: none; 
-          border-radius: 20px; 
-          cursor: pointer;
-          font-weight: bold;
-        }
-        h2 { color: #075E54; margin-bottom: 20px; }
-      </style>
-    </head>
-    <body>
-      <div class="login">
-        <h2>💚 Milton Chat</h2>
-        <p>Chat privado do Milton</p>
-        <form>
-          <input name="senha" type="password" placeholder="Digite a senha" required>
-          <br>
-          <button type="submit">Entrar</button>
-        </form>
-      </div>
-    </body>
-    </html>
-  `);
-});
+      });
 
-// Serve o index.html
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
+      if (total === 0) {
+        io.to(sala).emit('bot message', { msg: 'Código inválido. Digita /menu pra ver.' });
+        return;
+      }
 
-// Lógica do Socket.io
-io.on('connection', (socket) => {
-  console.log('Usuário conectado');
-  
-  socket.on('chat message', (data) => {
-    io.emit('chat message', data); // Manda pra todo mundo
-  });
-  
-  socket.on('disconnect', () => {
-    console.log('Usuário saiu');
-  });
-});
+      pedidosPendentes[numero] = { nome, itens, total, resumo };
+      io.to(sala).emit('bot message', {
+        msg: `Pedido anotado ${nome} ✅\n\n${resumo}\n*Total: ${total} Kz*\n\nAgora manda teu *endereço completo* pra entrega:`
+      });
+      return;
+    }
 
-http.listen(PORT, () => {
-  console.log(`HELLO, WORLD! Chat Milton Tech is live on ${PORT}`);
+    // 3. RECEBE ENDEREÇO E FINALIZA
+    if (pedidosPendentes[numero] &&!cmd.startsWith('/')) {
+      const pedido = pedidosPendentes[numero];
+      const endereco = msg;
+
+      // Manda pro dono no grupo 'pedidos'
+      io.to('pedidos').emit('bot message', {
+        msg: `🔔 *NOVO PEDIDO* 🔔\n\n*Cliente:* ${pedido.nome}\n*Número:* +${numero}\n*Pedido:*\n${pedido.resumo}*Total:* ${pedido.total} Kz\n*Endereço:* ${endereco}\n\n*Hora:* ${new Date().toLocaleTimeString('pt-AO')}`
+      });
+
+      // Confirma pro cliente
+      io.to(sala).emit('bot message', {
+        msg: `Boa ${pedido.nome}! Pedido confirmado ✅\nTotal: ${pedido.total} Kz\nVamos entregar em: ${endereco}\n\nTempo: 30-45min`
+      });
+
+      delete pedidosPendentes[numero]; // Limpa
+      return;
+    }
+
+    // Teu código normal continua...
 });
